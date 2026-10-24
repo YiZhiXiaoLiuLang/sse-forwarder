@@ -1,0 +1,12 @@
+# 运行时状态（含 Dashboard 里配置的上游 key，切勿提交）
+data/
+
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+*.log
+.env
+.idea/
+.vscode/

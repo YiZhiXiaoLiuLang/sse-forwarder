@@ -1,0 +1,44 @@
+services:
+  forwarder:
+    build: .
+    image: sse-forwarder:latest
+    container_name: sse-forwarder
+    restart: unless-stopped
+    ports:
+      - "6778:6778"   # 代理：客户端把 SSE 请求打到 http://localhost:6778/...
+      - "6779:6779"   # Dashboard：浏览器打开 http://localhost:6779
+    environment:
+      # 初始上游；compose 里已带一个 mock 上游，开箱即可看到效果
+      UPSTREAM_URL: http://mock:9000
+      UPSTREAM_NAME: mock
+      # ===== 大模型接口改写：本地值 <-> 上游值（跟着上游走，也可在 Dashboard 里改）=====
+      LOCAL_API_KEY: "sk-local-请替换成你客户端用的key"
+      UPSTREAM_API_KEY: "sk-upstream-请替换成上游要求的key"
+      LOCAL_MODEL: "local-qwen3-max-thinking"
+      UPSTREAM_MODEL: "qwen-max-upstream-v3"
+      REWRITE_ENABLED: "true"           # false = 完全关闭改写，纯透传
+      # REWRITE_FORCE_IDENTITY: "true"  # 有响应改写时强制上游返回明文（压缩流无法字面替换）
+      # DASHBOARD_TOKEN: change-me     # 打开后访问需要 ?token=change-me
+      # READ_TIMEOUT: "0"              # 0 = 不限（SSE 必需）
+      # IDLE_TIMEOUT: "120"            # 上游静默多久判定卡死，0=关闭
+      # FORCE_IDENTITY_ENCODING: "true"
+      LOG_LEVEL: info
+    volumes:
+      - forwarder-data:/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # 方便把上游指向宿主机服务
+    depends_on:
+      - mock
+
+  # 仅用于演示/自测的非标 SSE 假上游，接真实上游时可删掉这个 service
+  mock:
+    build: .
+    image: sse-forwarder:latest
+    container_name: sse-forwarder-mock
+    entrypoint: ["python", "-m", "tools.fake_upstream", "9000"]
+    ports:
+      - "9000:9000"
+    restart: unless-stopped
+
+volumes:
+  forwarder-data:

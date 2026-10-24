@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SSE 转发器 · Dashboard</title>
+<style>
+:root{
+  --bg:#0d1117; --panel:#161b22; --panel2:#1c2330; --line:#2d333b;
+  --fg:#e6edf3; --dim:#8b949e; --acc:#58a6ff; --ok:#3fb950; --warn:#d29922; --err:#f85149;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:13px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+a{color:var(--acc)}
+header{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center;padding:8px 14px;background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:20}
+header h1{font-size:14px;margin:0;font-weight:600;letter-spacing:.3px}
+.pill{background:var(--panel2);border:1px solid var(--line);border-radius:999px;padding:2px 10px;font-size:11.5px;color:var(--dim);white-space:nowrap}
+.pill b{color:var(--fg);font-weight:600}
+.pill.ok b{color:var(--ok)} .pill.err b{color:var(--err)} .pill.warn b{color:var(--warn)}
+main{display:grid;grid-template-columns:290px 320px 1fr;gap:1px;background:var(--line);height:calc(100vh - 45px)}
+section{background:var(--bg);overflow:auto;min-height:0}
+.phead{position:sticky;top:0;background:var(--panel);border-bottom:1px solid var(--line);padding:7px 10px;font-size:12px;font-weight:600;display:flex;justify-content:space-between;align-items:center;gap:8px;z-index:5}
+.phead .sub{font-weight:400;color:var(--dim);font-size:11px}
+button{background:var(--panel2);border:1px solid var(--line);color:var(--fg);border-radius:5px;padding:3px 9px;font-size:11.5px;cursor:pointer}
+button:hover{border-color:var(--acc);color:var(--acc)}
+button.primary{background:#1f6feb;border-color:#1f6feb;color:#fff}
+button.primary:hover{background:#388bfd;color:#fff}
+button.danger:hover{border-color:var(--err);color:var(--err)}
+button:disabled{opacity:.45;cursor:not-allowed}
+input,textarea,select{background:#0b0f14;border:1px solid var(--line);color:var(--fg);border-radius:5px;padding:4px 7px;font-size:12px;font-family:var(--mono);width:100%}
+textarea{resize:vertical}
+label{font-size:11px;color:var(--dim);display:block;margin:6px 0 2px}
+.up{padding:8px 10px;border-bottom:1px solid var(--line);cursor:pointer}
+.up:hover{background:var(--panel)}
+.up.active{background:#12233b;border-left:3px solid var(--acc);padding-left:7px}
+.up .n{font-weight:600;display:flex;justify-content:space-between;gap:6px;align-items:center}
+.up .u{color:var(--dim);font-family:var(--mono);font-size:11px;word-break:break-all;margin-top:2px}
+.up .acts{display:flex;gap:5px;margin-top:6px;flex-wrap:wrap}
+.badge{font-size:10px;padding:1px 6px;border-radius:999px;border:1px solid var(--line);color:var(--dim)}
+.badge.on{background:#12331f;border-color:#1f6f3a;color:var(--ok)}
+.sess{padding:7px 10px;border-bottom:1px solid var(--line);cursor:pointer;font-size:12px}
+.sess:hover{background:var(--panel)}
+.sess.sel{background:#12233b;border-left:3px solid var(--acc);padding-left:7px}
+.sess .l1{display:flex;gap:6px;align-items:center}
+.m{font-family:var(--mono);font-weight:700;font-size:10.5px;padding:1px 5px;border-radius:3px;background:var(--panel2);border:1px solid var(--line)}
+.m.GET{color:var(--ok)} .m.POST{color:var(--acc)} .m.DELETE{color:var(--err)}
+.st{width:7px;height:7px;border-radius:50%;background:var(--dim);flex:0 0 auto}
+.st.streaming{background:var(--ok);box-shadow:0 0 6px var(--ok);animation:pulse 1.4s infinite}
+.st.connecting{background:var(--warn)} .st.error{background:var(--err)} .st.done{background:#4a5568} .st.killed{background:var(--err)}
+@keyframes pulse{50%{opacity:.35}}
+.sess .p{font-family:var(--mono);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.sess .l2{color:var(--dim);font-size:10.5px;display:flex;gap:8px;flex-wrap:wrap;margin-top:2px}
+.sc{color:var(--ok)} .sc.bad{color:var(--err)} .sc.warn{color:var(--warn)}
+.tabs{display:flex;gap:2px;padding:0 8px;background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:31px;z-index:4}
+.tab{padding:6px 12px;border:1px solid transparent;border-bottom:none;border-radius:6px 6px 0 0;cursor:pointer;font-size:12px;color:var(--dim)}
+.tab.on{background:var(--bg);border-color:var(--line);color:var(--fg);font-weight:600}
+.tab .cnt{font-size:10px;background:var(--err);color:#fff;border-radius:999px;padding:0 5px;margin-left:4px}
+.body{padding:10px 12px}
+.kv{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11.5px}
+.kv td{padding:3px 6px;border-bottom:1px solid #1b2230;vertical-align:top;word-break:break-all}
+.kv td:first-child{color:var(--acc);white-space:nowrap;width:1%;padding-right:12px}
+.chunk{border:1px solid var(--line);border-radius:6px;margin-bottom:6px;background:var(--panel);overflow:hidden}
+.chunk .ch{display:flex;gap:10px;flex-wrap:wrap;padding:4px 8px;background:var(--panel2);font-size:10.5px;color:var(--dim);font-family:var(--mono);align-items:center}
+.chunk .ch b{color:var(--fg)}
+.chunk pre{margin:0;padding:7px 9px;font-family:var(--mono);font-size:11.5px;white-space:pre-wrap;word-break:break-all;max-height:340px;overflow:auto}
+.chunk.hex pre{color:#a5d6ff}
+.errbox{border:1px solid #5c2323;background:#231314;border-radius:6px;padding:8px 10px;margin-bottom:8px}
+.errbox .t{color:var(--err);font-weight:700;font-size:12.5px}
+.errbox .msg{font-family:var(--mono);font-size:11.5px;margin:4px 0;white-space:pre-wrap;word-break:break-all}
+.errbox .meta{color:var(--dim);font-size:11px;display:flex;gap:10px;flex-wrap:wrap}
+.errbox pre{background:#0b0f14;border:1px solid var(--line);border-radius:5px;padding:7px;font-size:11px;max-height:260px;overflow:auto;white-space:pre-wrap;word-break:break-all;color:#ffb4ab}
+.errbox.nonfatal{border-color:#5c4a1f;background:#231d10}
+.errbox.nonfatal .t{color:var(--warn)}
+.hint{color:var(--dim);font-size:11.5px;padding:14px;text-align:center}
+.analysis{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:8px 10px;margin-bottom:10px;font-size:11.5px}
+.analysis .row{display:flex;gap:8px;flex-wrap:wrap}
+.analysis .tag{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padding:1px 7px;font-family:var(--mono);font-size:10.5px;color:var(--dim)}
+.analysis .tag.bad{border-color:#5c4a1f;color:var(--warn)}
+.toolbar{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:6px 10px;border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0;z-index:3}
+.toolbar label{margin:0;display:flex;align-items:center;gap:4px;color:var(--dim);font-size:11px}
+.toolbar input[type=checkbox]{width:auto}
+#toast{position:fixed;right:14px;bottom:14px;display:flex;flex-direction:column;gap:6px;z-index:99}
+.toast{background:var(--panel2);border:1px solid var(--line);border-left:3px solid var(--acc);border-radius:5px;padding:7px 11px;font-size:12px;max-width:420px;box-shadow:0 4px 14px #0008}
+.toast.err{border-left-color:var(--err)} .toast.ok{border-left-color:var(--ok)}
+.rrow{display:grid;grid-template-columns:74px 1fr 1fr 92px 26px;gap:5px;margin-bottom:5px;align-items:center}
+.rrow input,.rrow select{font-size:11px;padding:3px 5px}
+#mask{position:fixed;inset:0;background:#000a;display:none;align-items:flex-start;justify-content:center;z-index:50;padding:40px 12px;overflow:auto}
+#mask.on{display:flex}
+.modal{display:none;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px;width:100%;max-width:820px;box-shadow:0 12px 40px #000c}
+.modal.show{display:block}
+button.solid-danger{background:#b62324;border-color:#b62324;color:#fff}
+button.solid-danger:hover{background:#ea4a4b;color:#fff}
+.modal h3{margin:0 0 4px;font-size:14px}
+.modal .tip{color:var(--dim);font-size:11.5px;margin-bottom:10px;line-height:1.6}
+.mfoot{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
+.rw-tbl{width:100%;border-collapse:collapse;font-size:11.5px;font-family:var(--mono)}
+.rw-tbl th,.rw-tbl td{border-bottom:1px solid #1b2230;padding:4px 6px;text-align:left;word-break:break-all;vertical-align:top}
+.rw-tbl th{color:var(--dim);font-weight:500}
+.rw-tbl td.n{color:var(--warn);text-align:right;white-space:nowrap}
+.arrow{color:var(--ok)}
+.chunk .tog{margin-left:auto;color:var(--acc);cursor:pointer;user-select:none}
+details summary{cursor:pointer;color:var(--acc);font-size:11.5px;margin:4px 0}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media(max-width:1180px){main{grid-template-columns:1fr;height:auto}section{max-height:60vh}}
+</style>
+</head>
+<body>
+<header>
+  <h1>SSE 转发器 Dashboard</h1>
+  <span class="pill">代理 <b id="hProxy">-</b></span>
+  <span class="pill">当前上游 <b id="hUp">-</b></span>
+  <span class="pill">会话 <b id="hSess">0</b></span>
+  <span class="pill" id="hOpenPill">进行中 <b id="hOpen">0</b></span>
+  <span class="pill">累计 <b id="hBytes">0 B</b></span>
+  <span class="pill warn">改写 <b id="hRew">-</b></span>
+  <span class="pill err" id="hErrPill" style="display:none">错误 <b id="hErr">0</b></span>
+  <span class="pill" id="hConn">实时流 <b>连接中…</b></span>
+</header>
+
+<main>
+  <!-- 上游 -->
+  <section id="left">
+    <div class="phead"><span>上游 Upstream</span><span class="sub">点击切换，立即生效</span></div>
+    <div style="padding:8px 10px;border-bottom:1px solid var(--line)">
+      <label>名称</label><input id="uName" placeholder="例如 本地 mock / 生产网关">
+      <label>URL</label><input id="uUrl" placeholder="http://host:port/path">
+      <label>附加请求头（JSON 对象，可空）</label><textarea id="uHeaders" rows="2" placeholder='{"Authorization":"Bearer xxx"}'></textarea>
+      <div style="border-top:1px solid var(--line);margin:9px 0 2px;padding-top:6px">
+        <div style="font-size:11.5px;color:var(--acc);font-weight:600">改写规则（本地 ⇄ 上游）</div>
+        <div style="font-size:10.5px;color:var(--dim);margin:2px 0 5px">请求方向：本地值 → 上游值；响应方向自动反向。字面全文替换。</div>
+        <label>本地 API Key（客户端用的 sk-…）</label><input id="uSrcKey" placeholder="sk-local-xxxxxxxx">
+        <label>上游 API Key（上游要求的 sk-…）</label><input id="uDstKey" placeholder="sk-upstream-yyyyyyyy">
+        <label>本地模型名</label><input id="uSrcModel" placeholder="local-qwen3-max-thinking">
+        <label>上游模型名</label><input id="uDstModel" placeholder="qwen-max-upstream-v3">
+      </div>
+      <label>备注</label><input id="uNote" placeholder="可选">
+      <div style="display:flex;gap:6px;margin-top:8px;align-items:center">
+        <button class="primary" id="btnAdd" style="flex:1">添加并激活</button>
+        <button id="btnAddOnly">仅添加</button>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:6px">
+        <button id="btnKillAll" class="danger" style="flex:1">断开所有进行中的流</button>
+      </div>
+    </div>
+    <div id="upList"></div>
+  </section>
+
+  <!-- 会话 -->
+  <section id="mid">
+    <div class="phead"><span>会话 Sessions</span>
+      <span style="display:flex;gap:5px">
+        <button id="btnOnlyOpen">只看进行中</button>
+        <button id="btnClear" class="danger">清历史</button>
+      </span>
+    </div>
+    <div id="sessList"><div class="hint">等待客户端请求代理端口…</div></div>
+  </section>
+
+  <!-- 详情 -->
+  <section id="right">
+    <div class="phead"><span id="dTitle">详情</span>
+      <span style="display:flex;gap:5px">
+        <button id="btnKill" class="danger" disabled>终止此会话</button>
+        <button id="btnRefresh">刷新</button>
+      </span>
+    </div>
+    <div class="toolbar">
+      <label><input type="checkbox" id="ckAuto" checked>自动滚动</label>
+      <label><input type="checkbox" id="ckPause">暂停渲染</label>
+      <label><input type="checkbox" id="ckHex">HEX 视图</label>
+      <label><input type="checkbox" id="ckMerge" checked>合并连续小分片</label>
+      <span class="pill" id="dMeta">未选择会话</span>
+    </div>
+    <div class="tabs">
+      <div class="tab on" data-t="stream">数据流 <span id="cntChunk"></span></div>
+      <div class="tab" data-t="req">请求头</div>
+      <div class="tab" data-t="res">响应头</div>
+      <div class="tab" data-t="rw">改写</div>
+      <div class="tab" data-t="err">错误 <span class="cnt" id="cntErr" style="display:none">0</span></div>
+      <div class="tab" data-t="ov">概览</div>
+    </div>
+    <div class="body" id="detail"><div class="hint">从中间列表选择一个会话，或直接通过代理端口发起请求</div></div>
+  </section>
+</main>
+<div id="mask">
+  <div class="modal" id="mRules">
+    <h3>改写规则 · <span id="mUpName"></span></h3>
+    <div class="tip">一条规则 = 一对值。<b>请求方向</b>把「本地值」字面替换为「上游值」（作用于全部请求头与 body）；
+      <b>响应方向</b>自动反向，把「上游值」换回「本地值」（流式逐块处理，跨分片被截断的值也能正确替换）。
+      纯字面替换、不解析 JSON，最长模式优先。值请填得足够长以避免误替换。</div>
+    <div class="rrow" style="color:var(--dim);font-size:10.5px">
+      <span>名称</span><span>本地值（客户端侧）</span><span>上游值（上游侧）</span><span>方向</span><span></span>
+    </div>
+    <div id="mRows"></div>
+    <button id="mAddRow" style="margin-top:4px">+ 加一条规则</button>
+    <div class="mfoot">
+      <button id="mCancel">取消</button>
+      <button id="mSave" class="primary">保存规则</button>
+    </div>
+  </div>
+  <div class="modal" id="mEdit" style="max-width:560px">
+    <h3>编辑上游</h3>
+    <label>名称</label><input id="eName" placeholder="例如 本地 mock / 生产网关">
+    <label>URL</label><input id="eUrl" placeholder="http://host:port/path">
+    <label>附加请求头（JSON 对象，可空）</label><textarea id="eHeaders" rows="4" placeholder='{"Authorization":"Bearer xxx"}'></textarea>
+    <label>备注</label><input id="eNote" placeholder="可选">
+    <div class="mfoot">
+      <button id="eCancel">取消</button>
+      <button id="eSave" class="primary">保存</button>
+    </div>
+  </div>
+  <div class="modal" id="mConfirm" style="max-width:440px">
+    <h3 id="cTitle">确认</h3>
+    <div id="cMsg" style="font-size:12.5px;line-height:1.7;margin:8px 0 2px"></div>
+    <div class="mfoot">
+      <button id="cCancel">取消</button>
+      <button id="cOk" class="solid-danger">确认</button>
+    </div>
+  </div>
+</div>
+<div id="toast"></div>
+
+<script>
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const TOKEN=new URLSearchParams(location.search).get('token')||'';
+const api=(p,opt={})=>fetch(p+(p.includes('?')?'&':'?')+(TOKEN?'token='+encodeURIComponent(TOKEN):''),
+  Object.assign({headers:Object.assign({'Content-Type':'application/json','X-Dashboard-Token':TOKEN},opt.headers||{})},opt)).then(async r=>{
+    const t=await r.text(); let j; try{j=JSON.parse(t)}catch(e){j={ok:false,error:'非 JSON 响应: '+t.slice(0,300)}}
+    if(!r.ok||j.ok===false) throw new Error(j.error||j.message||('HTTP '+r.status)); return j;});
+const fmtB=n=>{if(n==null)return '-';if(n<1024)return n+' B';if(n<1048576)return (n/1024).toFixed(1)+' KB';return (n/1048576).toFixed(2)+' MB'};
+const esc=s=>String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+function b64ToBytes(b){if(!b)return new Uint8Array();const s=atob(b);const u=new Uint8Array(s.length);for(let i=0;i<s.length;i++)u[i]=s.charCodeAt(i);return u}
+function bytesToText(u){return new TextDecoder('utf-8',{fatal:false}).decode(u)}
+function bytesToHex(u){let o=[];for(let i=0;i<u.length;i+=16){const sl=u.slice(i,i+16);
+  o.push(String(i).padStart(8,'0')+'  '+[...sl].map(b=>b.toString(16).padStart(2,'0')).join(' ')
+    .padEnd(48,' ')+'  |'+[...sl].map(b=>b>=32&&b<127?String.fromCharCode(b):'.').join('')+'|')}return o.join('\n')}
+function toast(msg,kind=''){const d=document.createElement('div');d.className='toast '+kind;d.innerHTML=esc(msg);
+  $('#toast').appendChild(d);setTimeout(()=>d.remove(),kind==='err'?9000:3500)}
+
+const S={upstreams:[],active:null,sessions:new Map(),order:[],sel:null,tab:'stream',onlyOpen:false,
+  paused:false,chunks:[],detail:null,es:null,stats:{}};
+
+/* ---------------- 上游 ---------------- */
+/* ---------------- 页面内弹窗（不用浏览器 alert/prompt/confirm） ---------------- */
+function openModal(id){$$('#mask .modal').forEach(m=>m.classList.toggle('show',m.id===id));$('#mask').classList.add('on')}
+function closeModal(){$('#mask').classList.remove('on')}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal()});
+
+/* ---------------- 改写规则弹窗 ---------------- */
+let M={uid:null,rules:[]};
+function openRules(uid){
+  const u=S.upstreams.find(x=>x.id===uid); if(!u)return;
+  M.uid=uid; M.rules=JSON.parse(JSON.stringify(u.rules||[]));
+  $('#mUpName').textContent=u.name+'  ('+u.url+')';
+  renderRows(); openModal('mRules');
+}
+function renderRows(){
+  $('#mRows').innerHTML=M.rules.map((r,i)=>`<div class="rrow" data-i="${i}">
+    <input class="f-label" value="${esc(r.label||'')}" placeholder="API Key">
+    <input class="f-src" value="${esc(r.src||'')}" placeholder="sk-local-…">
+    <input class="f-dst" value="${esc(r.dst||'')}" placeholder="sk-upstream-…">
+    <select class="f-scope">
+      <option value="both" ${r.scope==='both'?'selected':''}>双向</option>
+      <option value="request" ${r.scope==='request'?'selected':''}>仅请求</option>
+      <option value="response" ${r.scope==='response'?'selected':''}>仅响应</option>
+    </select>
+    <button class="f-del danger" title="删除">✕</button></div>`).join('')
+    ||'<div class="hint" style="padding:8px">还没有规则，点下面按钮加一条</div>';
+}
+$('#mRows').addEventListener('input',e=>{
+  const row=e.target.closest('.rrow'); if(!row)return; const r=M.rules[+row.dataset.i];
+  r.label=row.querySelector('.f-label').value; r.src=row.querySelector('.f-src').value;
+  r.dst=row.querySelector('.f-dst').value; r.scope=row.querySelector('.f-scope').value;
+});
+$('#mRows').addEventListener('click',e=>{
+  if(!e.target.closest('.f-del'))return;
+  M.rules.splice(+e.target.closest('.rrow').dataset.i,1); renderRows();
+});
+$('#mAddRow').onclick=()=>{M.rules.push({label:'',src:'',dst:'',scope:'both',enabled:true});renderRows()};
+$('#mCancel').onclick=closeModal;
+$('#mask').addEventListener('click',e=>{if(e.target.id==='mask')closeModal()});
+$('#mSave').onclick=async()=>{
+  const rules=M.rules.filter(r=>r.src||r.dst).map(r=>({...r,enabled:r.enabled!==false}));
+  for(const r of rules) if(!r.src||!r.dst) return toast('每条规则的本地值与上游值都必须填写','err');
+  try{
+    await api('/api/upstreams/'+M.uid,{method:'PUT',body:JSON.stringify({rules})});
+    closeModal(); toast('已保存 '+rules.length+' 条规则，对后续请求立即生效','ok');
+    await loadState();
+  }catch(err){toast('保存失败: '+err.message,'err')}
+};
+
+/* ---------------- 编辑上游弹窗 ---------------- */
+let E={uid:null};
+function openEdit(uid){
+  const u=S.upstreams.find(x=>x.id===uid); if(!u)return;
+  E.uid=uid;
+  $('#eName').value=u.name||''; $('#eUrl').value=u.url||'';
+  $('#eHeaders').value=u.headers&&Object.keys(u.headers).length?JSON.stringify(u.headers,null,2):'';
+  $('#eNote').value=u.note||'';
+  openModal('mEdit'); $('#eName').focus();
+}
+$('#eCancel').onclick=closeModal;
+$('#eSave').onclick=async()=>{
+  const url=$('#eUrl').value.trim(), name=$('#eName').value.trim();
+  if(!url)return toast('URL 不能为空','err');
+  let headers={}; const raw=$('#eHeaders').value.trim();
+  if(raw){try{headers=JSON.parse(raw)}catch(e){return toast('附加请求头不是合法 JSON: '+e.message,'err')}}
+  try{
+    await api('/api/upstreams/'+E.uid,{method:'PUT',body:JSON.stringify({url,name,headers,note:$('#eNote').value.trim()})});
+    closeModal(); toast('已更新 '+(name||url),'ok');
+    await loadState();
+  }catch(err){toast('保存失败: '+err.message,'err')}
+};
+
+/* ---------------- 确认弹窗 ---------------- */
+let C={fn:null};
+function openConfirm(title,msg,okText,fn){
+  $('#cTitle').textContent=title; $('#cMsg').innerHTML=msg; $('#cOk').textContent=okText||'确认';
+  C.fn=fn; openModal('mConfirm');
+}
+$('#cOk').onclick=()=>{const fn=C.fn;C.fn=null;closeModal();if(fn)fn()};
+$('#cCancel').onclick=closeModal;
+
+async function loadState(){
+  const st=await api('/api/state');
+  S.upstreams=st.upstreams; S.active=st.active_upstream_id; S.stats=st.stats||{};
+  $('#hProxy').textContent=st.settings.proxy_listen;
+  const act=st.active_upstream, nr=act&&act.rules?act.rules.filter(r=>r.enabled!==false).length:0;
+  $('#hRew').textContent=st.settings.rewrite_enabled?(nr?nr+' 条规则':'未配置'):'已关闭';
+  $('#hRew').parentNode.style.display=st.settings.rewrite_enabled?'':'none';
+  $('#hUp').textContent=st.active_upstream?st.active_upstream.name:'(未配置)';
+  $('#hErr').textContent=st.stats.errors||0; $('#hErrPill').style.display=(st.stats.errors||0)>0?'':'none';
+  $('#hBytes').textContent=fmtB(st.stats.bytes_upstream||0);
+  renderUps();
+}
+function renderUps(){
+  $('#upList').innerHTML=S.upstreams.map(u=>{
+    const on=u.id===S.active;
+    return `<div class="up ${on?'active':''}" data-id="${u.id}">
+      <div class="n"><span>${esc(u.name)}</span><span class="badge ${on?'on':''}">${on?'● 使用中':'未激活'}</span></div>
+      <div class="u">${esc(u.url)}</div>
+      ${u.note?`<div class="u" style="color:#6e7681">备注: ${esc(u.note)}</div>`:''}
+      ${u.headers&&Object.keys(u.headers).length?`<div class="u" style="color:#6e7681">附加头: ${esc(Object.keys(u.headers).join(', '))}</div>`:''}
+      <div class="u" style="color:${(u.rules&&u.rules.length)?'var(--warn)':'#6e7681'}">改写规则: ${(u.rules&&u.rules.length)?u.rules.length+' 条 · '+u.rules.map(r=>esc(r.label||(r.src.slice(0,10)+'…'))).join(', '):'无'}</div>
+      <div class="acts">
+        <button data-a="rules">规则</button>
+        <button data-a="act" ${on?'disabled':''}>切换到此</button>
+        <button data-a="actkill">切换并断流</button>
+        <button data-a="test">探测</button>
+        <button data-a="edit">编辑</button>
+        <button data-a="del" class="danger">删除</button>
+      </div></div>`}).join('')||'<div class="hint">还没有上游，先在上方添加一个</div>';
+}
+$('#upList').addEventListener('click',async e=>{
+  const btn=e.target.closest('button'); const box=e.target.closest('.up'); if(!btn||!box)return;
+  const id=box.dataset.id, u=S.upstreams.find(x=>x.id===id), a=btn.dataset.a;
+  btn.disabled=true;
+  try{
+    if(a==='act'){await api(`/api/upstreams/${id}/activate`,{method:'POST',body:'{}'});toast('已切换上游 → '+u.name,'ok')}
+    if(a==='actkill'){const r=await api(`/api/upstreams/${id}/activate`,{method:'POST',body:JSON.stringify({kill_open:true})});
+      toast(`已切换上游 → ${u.name}，并断开 ${r.killed_open_sessions} 条旧流`,'ok')}
+    if(a==='rules'){openRules(id);return}
+    if(a==='del'){
+      openConfirm('删除上游',`确定删除上游 <b>${esc(u.name)}</b>（${esc(u.url)}）？此操作不可撤销。`,'删除',async()=>{
+        try{await api('/api/upstreams/'+id,{method:'DELETE'});toast('已删除 '+u.name,'ok');await loadState()}
+        catch(err){toast('删除失败: '+err.message,'err')}
+      }); return;
+    }
+    if(a==='edit'){openEdit(id);return}
+    if(a==='test'){toast('探测中…'); const r=await fetch(`/api/upstreams/${id}/test?token=${encodeURIComponent(TOKEN)}`,{method:'POST',
+      headers:{'Content-Type':'application/json'},body:'{}'}).then(x=>x.json());
+      showProbe(r)}
+    await loadState();
+  }catch(err){toast('操作失败: '+err.message,'err')}finally{btn.disabled=false}
+});
+function showProbe(r){
+  const rp=r.report||{}; const ok=r.ok;
+  const lines=(rp.steps||[]).map(s=>`${s.ok?'✔':'✘'} ${s.step} ${s.ms}ms — ${typeof s.detail==='string'?s.detail:JSON.stringify(s.detail)}`).join('\n');
+  toast((ok?'探测通过 ':'探测未通过 ')+(rp.target_url||'')+'\n'+lines+(rp.error?'\n错误: '+rp.error:''),ok?'ok':'err');
+  const d=document.createElement('div');d.className='toast '+(ok?'ok':'err');
+  d.innerHTML=`<b>${ok?'上游探测通过':'上游探测失败'}</b><div style="font-family:var(--mono);font-size:11px;white-space:pre-wrap">${esc(lines)}${rp.error?'\n'+esc(rp.error):''}</div>`;
+  $('#toast').appendChild(d);setTimeout(()=>d.remove(),15000);
+}
+function rulesFromForm(){
+  const out=[];
+  const k1=$('#uSrcKey').value.trim(), k2=$('#uDstKey').value.trim();
+  const m1=$('#uSrcModel').value.trim(), m2=$('#uDstModel').value.trim();
+  if(k1&&k2)out.push({label:'API Key',src:k1,dst:k2,scope:'both',enabled:true});
+  if(m1&&m2)out.push({label:'模型名',src:m1,dst:m2,scope:'both',enabled:true});
+  if((k1&&!k2)||(!k1&&k2))throw new Error('API Key 的本地值与上游值必须成对填写');
+  if((m1&&!m2)||(!m1&&m2))throw new Error('模型名的本地值与上游值必须成对填写');
+  return out;
+}
+async function addUp(activate){
+  const name=$('#uName').value.trim(), url=$('#uUrl').value.trim();
+  let rules=[]; try{rules=rulesFromForm()}catch(e){return toast(e.message,'err')}
+  let headers={}; const raw=$('#uHeaders').value.trim();
+  if(raw){try{headers=JSON.parse(raw)}catch(e){return toast('附加请求头不是合法 JSON: '+e.message,'err')}}
+  if(!url)return toast('URL 不能为空','err');
+  try{await api('/api/upstreams',{method:'POST',body:JSON.stringify({name,url,headers,note:$('#uNote').value.trim(),activate})});
+    $('#uName').value=$('#uUrl').value=$('#uHeaders').value=$('#uNote').value='';
+    toast((activate?'已添加并激活: ':'已添加: ')+url,'ok'); await loadState();}
+  catch(err){toast('添加失败: '+err.message,'err')}
+}
+$('#btnAdd').onclick=()=>addUp(true); $('#btnAddOnly').onclick=()=>addUp(false);
+$('#btnKillAll').onclick=()=>openConfirm('断开所有进行中的流','所有进行中的连接会被立即终止，客户端会收到连接关闭并自行重连到当前上游。','断开',async()=>{
+  try{const r=await api('/api/sessions/kill-all',{method:'POST',body:'{}'});toast('已请求断开 '+r.killed+' 条流','ok')}
+  catch(err){toast('操作失败: '+err.message,'err')}
+});
+$('#btnClear').onclick=async()=>{await api('/api/sessions/clear',{method:'POST',body:'{}'});S.sessions.clear();S.order=[];renderSess();toast('历史已清空','ok')};
+$('#btnOnlyOpen').onclick=e=>{S.onlyOpen=!S.onlyOpen;e.target.textContent=S.onlyOpen?'看全部':'只看进行中';renderSess()};
+$('#btnKill').onclick=async()=>{if(!S.sel)return;await api(`/api/sessions/${S.sel}/kill`,{method:'POST',body:'{}'});toast('已请求终止会话','ok')};
+$('#btnRefresh').onclick=()=>selectSession(S.sel,true);
+
+/* ---------------- 会话列表 ---------------- */
+function renderSess(){
+  let ids=[...S.order].reverse();
+  if(S.onlyOpen)ids=ids.filter(i=>['connecting','streaming'].includes(S.sessions.get(i)?.state));
+  $('#sessList').innerHTML=ids.slice(0,200).map(i=>{
+    const s=S.sessions.get(i); if(!s)return '';
+    const bad=s.errors>0, sc=s.status?(s.status>=400?'bad':''):'';
+    return `<div class="sess ${S.sel===i?'sel':''}" data-id="${i}">
+      <div class="l1"><span class="st ${s.state}"></span><span class="m ${s.method}">${s.method}</span>
+        <span class="p">${esc(s.path||'/')}</span><span class="sc ${sc}">${s.status??'…'}</span></div>
+      <div class="l2"><span>#${s.short_id}</span><span>${esc(s.upstream_name||'')}</span>
+        <span>${fmtB(s.bytes_upstream)}</span><span>${s.chunks}块</span><span>${(s.duration_ms/1000).toFixed(1)}s</span>
+        ${bad?`<span style="color:var(--err)">⚠${s.errors}</span>`:''}
+        ${s.state!=='streaming'&&s.state!=='connecting'?`<span>${esc(s.close_reason||s.state)}</span>`:''}</div>
+    </div>`}).join('')||'<div class="hint">暂无会话</div>';
+  $('#hSess').textContent=S.sessions.size;
+  $('#hOpen').textContent=[...S.sessions.values()].filter(s=>['connecting','streaming'].includes(s.state)).length;
+}
+$('#sessList').addEventListener('click',e=>{const b=e.target.closest('.sess');if(b)selectSession(b.dataset.id)});
+
+/* ---------------- 详情 ---------------- */
+$$('.tab').forEach(t=>t.onclick=()=>{$$('.tab').forEach(x=>x.classList.remove('on'));t.classList.add('on');S.tab=t.dataset.t;renderDetail()});
+async function selectSession(id,force){
+  if(!id)return; if(S.sel===id&&!force)return;
+  S.sel=id; S.chunks=[]; renderSess();
+  try{
+    const r=await api('/api/sessions/'+id);
+    S.detail=r.session; S.chunks=(r.session.chunks||[]).map(c=>({...c,bytes:b64ToBytes(c.b64)}));
+    $('#btnKill').disabled=!['connecting','streaming'].includes(r.session.state);
+    renderDetail();
+  }catch(err){$('#detail').innerHTML=`<div class="hint">加载失败: ${esc(err.message)}</div>`}
+}
+function renderDetail(){
+  const s=S.detail;
+  if(!s){$('#detail').innerHTML='<div class="hint">从中间列表选择一个会话</div>';return}
+  $('#dTitle').textContent=`${s.method} ${s.path||'/'}  #${s.short_id}`;
+  $('#dMeta').innerHTML=`${s.state} · ${s.status??'-'} · ${fmtB(s.bytes_upstream)} · ${s.chunks}块 · TTFB ${s.ttfb_ms??'-'}ms · ${esc(s.upstream_name||'')}`;
+  $('#cntChunk').textContent=S.chunks.length?'('+S.chunks.length+')':'';
+  const ce=$('#cntErr'); ce.textContent=s.errors.length; ce.style.display=s.errors.length?'':'none';
+  if(S.tab==='ov')return renderOverview(s);
+  if(S.tab==='req')return renderHeaders(s,'request_headers','请求体',s.request_body);
+  if(S.tab==='res')return renderHeaders(s,'response_headers',null,null);
+  if(S.tab==='rw')return renderRewrite(s);
+  if(S.tab==='err')return renderErrors(s);
+  renderStream(s);
+}
+function renderOverview(s){
+  const a=s.sse_analysis||{}; const tags=[];
+  const add=(k,v,bad)=>{if(v!==undefined&&v!==null&&v!=='')tags.push(`<span class="tag ${bad?'bad':''}">${k}: ${esc(v)}</span>`)};
+  add('采样',fmtB(a.sampled_bytes)); add('CRLF',a.crlf_count); add('LF',a.bare_lf_count); add('CR',a.bare_cr_count,a.bare_cr_count>0);
+  add('空行分隔',a.blank_line_separators,a.blank_line_separators===0); add('data:',a.data_lines,a.data_lines===0);
+  add('event:',a.event_lines); add('id:',a.id_lines); add('retry:',a.retry_lines); add('注释行',a.comment_lines);
+  add('非字段行',a.non_field_lines,a.non_field_lines>0); add('疑似JSON行',a.json_like_lines);
+  const rows=[['会话 ID',s.id],['状态',s.state],['关闭原因',s.close_reason||'-'],['客户端',s.client],
+    ['方法/路径',s.method+' '+(s.path||'/')+(s.query?'?'+s.query:'')],['上游',s.upstream_name],
+    ['实际请求的上游地址',s.target_url],['响应状态',`${s.status??'-'} ${s.http_version||''}`],
+    ['首字节耗时',s.ttfb_ms!=null?s.ttfb_ms.toFixed(2)+' ms':'-'],['持续时间',(s.duration_ms/1000).toFixed(3)+' s'],
+    ['上游→客户端字节',fmtB(s.bytes_upstream)],['分片数',s.chunks],['抓取字节',fmtB(s.captured_bytes)],
+    ['因超限丢弃分片',s.drop_count],['开始',s.created_at_text],['结束',s.closed_at_text||'-'],['错误数',s.errors.length]];
+  $('#detail').innerHTML=`
+    <div class="analysis"><b>非标 SSE 探测</b>
+      ${(a.nonstandard&&a.nonstandard.length)?`<div style="color:var(--warn);margin:4px 0">⚠ ${a.nonstandard.map(esc).join('； ')}</div>`
+        :'<div style="color:var(--ok);margin:4px 0">✔ 未发现明显的非标准特征（仅基于已采样内容判断）</div>'}
+      <div class="row">${tags.join('')}</div>
+      <div style="color:#6e7681;margin-top:6px">说明：转发器不解析 SSE，以上仅为观察结论，不影响任何转发字节。</div>
+    </div>
+    <table class="kv">${rows.map(r=>`<tr><td>${esc(r[0])}</td><td>${esc(r[1])}</td></tr>`).join('')}</table>`;
+}
+function renderHeaders(s,key,bodyTitle,body){
+  const hs=s[key]||[];
+  const rows=hs.map(h=>`<tr><td>${esc(h.k)}</td><td>${esc(h.v)}</td></tr>`).join('')||'<tr><td colspan=2 style="color:var(--dim)">(无)</td></tr>';
+  let extra='';
+  if(bodyTitle){
+    const u=b64ToBytes(body?.b64||'');
+    extra=`<h4 style="margin:14px 0 6px">${bodyTitle} (${fmtB(body?.size||0)}${body?.truncated?'，已截断':''})</h4>
+      <pre style="background:#0b0f14;border:1px solid var(--line);border-radius:5px;padding:8px;max-height:300px;overflow:auto;white-space:pre-wrap;word-break:break-all;font-family:var(--mono);font-size:11.5px">${esc(bytesToText(u))||'<span style="color:#6e7681">(空)</span>'}</pre>`;
+  }
+  $('#detail').innerHTML=`<table class="kv">${rows}</table>${extra}`;
+}
+function rwTable(hits,title){
+  if(!hits||!hits.length)return `<div class="hint" style="padding:8px 0">${title}：无命中</div>`;
+  return `<h4 style="margin:10px 0 6px">${title}（合计 ${hits.reduce((a,b)=>a+(b.count||0),0)} 处）</h4>
+  <table class="rw-tbl"><tr><th>规则</th><th>位置</th><th>替换</th><th>次数</th></tr>
+  ${hits.map(h=>`<tr><td>${esc(h.label||'-')}</td><td>${esc(h.in||(h.direction==='request'?'请求':'响应'))}</td>
+    <td>${esc(h.src)} <span class="arrow">→</span> ${esc(h.dst)}</td><td class="n">${h.count}</td></tr>`).join('')}</table>`;
+}
+function renderRewrite(s){
+  const rules=s.rewrite_rules||[];
+  const rb=s.request_body||{};
+  const raw=b64ToBytes(rb.raw_b64||''), out=b64ToBytes(rb.b64||'');
+  $('#detail').innerHTML=`
+  <div class="analysis"><b>本会话使用的规则快照</b>
+    ${rules.length?`<table class="rw-tbl" style="margin-top:6px"><tr><th>名称</th><th>本地值</th><th></th><th>上游值</th><th>方向</th></tr>
+      ${rules.map(r=>`<tr><td>${esc(r.label||'-')}</td><td>${esc(r.src)}</td><td class="arrow">⇄</td><td>${esc(r.dst)}</td>
+      <td>${r.scope==='both'?'双向':(r.scope==='request'?'仅请求':'仅响应')}</td></tr>`).join('')}</table>`
+      :'<div style="color:var(--dim);margin-top:4px">该上游没有配置改写规则（或 REWRITE_ENABLED=false），请求与响应均按原始字节透传。</div>'}
+  </div>
+  ${rwTable(s.request_rewrites,'请求方向（客户端 → 上游）')}
+  ${rwTable(s.response_rewrites,'响应方向（上游 → 客户端，已反向替换）')}
+  ${raw.length?`<h4 style="margin:14px 0 6px">请求体对照</h4>
+    <div class="grid2">
+      <div><div style="color:var(--dim);font-size:11px;margin-bottom:3px">客户端原始 (${fmtB(rb.raw_size)})</div>
+        <pre style="background:#0b0f14;border:1px solid var(--line);border-radius:5px;padding:8px;max-height:280px;overflow:auto;white-space:pre-wrap;word-break:break-all;font-family:var(--mono);font-size:11px">${esc(bytesToText(raw))}</pre></div>
+      <div><div style="color:var(--dim);font-size:11px;margin-bottom:3px">实际发给上游 (${fmtB(rb.size)})</div>
+        <pre style="background:#0b0f14;border:1px solid #1f6f3a;border-radius:5px;padding:8px;max-height:280px;overflow:auto;white-space:pre-wrap;word-break:break-all;font-family:var(--mono);font-size:11px">${esc(bytesToText(out))}</pre></div>
+    </div>`:''}
+  <div style="color:#6e7681;font-size:11px;margin-top:10px">数据流页签里，发生过改写的分片右上角有「上游原文」开关，可逐块对照替换前后的字节。</div>`;
+}
+function renderErrors(s){
+  if(!s.errors.length)return $('#detail').innerHTML='<div class="hint" style="color:var(--ok)">该会话没有记录到任何错误</div>';
+  $('#detail').innerHTML=s.errors.map(e=>`<div class="errbox ${e.fatal?'':'nonfatal'}">
+    <div class="t">${e.fatal?'致命错误':'警告'} · ${esc(e.type)} <span style="color:var(--dim);font-weight:400">phase=${esc(e.phase)}</span></div>
+    <div class="msg">${esc(e.message)}</div>
+    <div class="meta"><span>${esc(e.ts_text)}</span>${e.detail&&e.detail.target_url?`<span>${esc(e.detail.target_url)}</span>`:''}</div>
+    ${e.detail&&Object.keys(e.detail).length?`<details><summary>详细信息 (${Object.keys(e.detail).length} 项)</summary>
+      <pre>${esc(JSON.stringify(e.detail,null,2))}</pre></details>`:''}
+    ${e.traceback?`<details><summary>Python 堆栈</summary><pre>${esc(e.traceback)}</pre></details>`:''}
+  </div>`).reverse().join('');
+}
+function renderStream(s){
+  const hex=$('#ckHex').checked, merge=$('#ckMerge').checked;
+  let list=S.chunks;
+  if(merge&&list.length>1){
+    const out=[];let buf=null;
+    for(const c of list){
+      if(buf&&c.delta_ms<40&&buf.bytes.length+c.bytes.length<65536&&!c.truncated){
+        const n=new Uint8Array(buf.bytes.length+c.bytes.length);n.set(buf.bytes);n.set(c.bytes,buf.bytes.length);
+        buf.bytes=n;buf.size+=c.size;buf.to=c.seq;buf.ts=c.ts;buf.delta_ms=c.delta_ms;
+      }else{if(buf)out.push(buf);buf={...c,to:c.seq}}
+    }
+    if(buf)out.push(buf);list=out;
+  }
+  if(!list.length)return $('#detail').innerHTML='<div class="hint">还没有收到任何数据分片</div>';
+  const html=list.map((c,ci)=>{
+    const src=c.src_b64?b64ToBytes(c.src_b64):null;
+    const txt=hex?bytesToHex(c.bytes):bytesToText(c.bytes);
+    return `<div class="chunk ${hex?'hex':''}" data-ci="${ci}"><div class="ch">
+      <span>#<b>${c.seq}${c.to&&c.to!==c.seq?'–'+c.to:''}</b></span>
+      <span>${esc(c.ts_text||'')}</span><span>Δ<b>${c.delta_ms}</b>ms</span>
+      <span><b>${fmtB(c.size)}</b></span>${c.truncated?'<span style="color:var(--warn)">已截断</span>':''}
+      ${src?'<span style="color:var(--warn)">已改写</span><span class="tog" data-tog="1">上游原文</span>':''}
+      </div><pre class="out">${esc(txt)}</pre>${src?`<pre class="srcv" style="display:none">${esc(hex?bytesToHex(src):bytesToText(src))}</pre>`:''}
+      </div>`}).join('');
+  $('#detail').onclick=e=>{
+    const t=e.target.closest('[data-tog]'); if(!t)return;
+    const box=t.closest('.chunk'); const a=box.querySelector('.out'), b=box.querySelector('.srcv');
+    if(!b)return; const show=b.style.display==='none';
+    b.style.display=show?'':'none'; a.style.display=show?'none':'';
+    t.textContent=show?'客户端收到':'上游原文'; t.style.color=show?'var(--warn)':'var(--acc)';
+  };
+  const el=$('#detail'); const stick=$('#ckAuto').checked&&el.scrollTop+el.clientHeight>=el.scrollHeight-60;
+  el.innerHTML=html; if(stick)el.scrollTop=el.scrollHeight;
+}
+$('#ckHex').onchange=renderDetail; $('#ckMerge').onchange=renderDetail;
+$('#ckPause').onchange=e=>{S.paused=e.target.checked;toast(S.paused?'已暂停渲染（后台仍在记录）':'恢复渲染')};
+$('#detail').addEventListener('scroll',()=>{});
+
+/* ---------------- 实时事件 ---------------- */
+function connect(){
+  const url='/api/events'+(TOKEN?'?token='+encodeURIComponent(TOKEN):'');
+  const es=new EventSource(url); S.es=es;
+  const setConn=(t,cls)=>{$('#hConn').className='pill '+cls;$('#hConn').innerHTML='实时流 <b>'+t+'</b>'};
+  es.onopen=()=>setConn('已连接','ok');
+  es.onerror=()=>{setConn('断开，重连中…','err')};
+  es.addEventListener('snapshot',e=>{
+    const d=JSON.parse(e.data).data;
+    (d.sessions||[]).forEach(s=>{S.sessions.set(s.id,s);if(!S.order.includes(s.id))S.order.push(s.id)});
+    S.upstreams=d.upstreams||[];S.active=d.active_upstream_id;renderUps();renderSess();setConn('已连接','ok');
+  });
+  const onChunk=e=>{
+    const c=JSON.parse(e.data); const s=S.sessions.get(c.session_id);
+    if(s){s.bytes_upstream=c.bytes_upstream;s.chunks=(s.chunks||0)+1;s.state=c.state;
+      const i=S.order.indexOf(c.session_id);if(i>=0){S.order.splice(i,1);S.order.push(c.session_id)}}
+    if(c.session_id===S.sel&&!S.paused){S.chunks.push({...c,bytes:b64ToBytes(c.b64)});
+      if(S.chunks.length>3000)S.chunks.splice(0,S.chunks.length-3000);
+      if(S.tab==='stream')renderStream(S.detail)}
+    renderSess(); if(S.detail&&S.detail.id===c.session_id){S.detail.bytes_upstream=c.bytes_upstream;S.detail.chunks=(S.detail.chunks||0)+1}
+  };
+  const onSummary=(kind)=>e=>{
+    const d=JSON.parse(e.data);
+    if(kind==='session_created'){S.sessions.set(d.id,d);if(!S.order.includes(d.id))S.order.push(d.id);
+      if(!S.sel)selectSession(d.id,true)}
+    else{const s=S.sessions.get(d.id);if(s)Object.assign(s,d)}
+    if(S.sel===d.id&&S.detail)Object.assign(S.detail,d);
+    renderSess(); if(S.sel===d.id)renderDetail();
+  };
+  const onError=e=>{
+    const d=JSON.parse(e.data);
+    const s=d.session_id?S.sessions.get(d.session_id):null;
+    if(s){s.errors=(s.errors||0)+1;s.last_error=d.message;if(d.fatal)s.state='error'}
+    if(S.detail&&S.detail.id===d.session_id){S.detail.errors=(S.detail.errors||[]).concat([d])}
+    $('#hErr').textContent=(parseInt($('#hErr').textContent||'0',10)+1);$('#hErrPill').style.display='';
+    toast(`[${d.phase}] ${d.type}: ${d.message}`.slice(0,300),'err');
+    renderSess(); if(S.sel===d.session_id)renderDetail();
+  };
+  es.addEventListener('chunk',onChunk);
+  es.addEventListener('session_created',onSummary('session_created'));
+  es.addEventListener('session_closed',onSummary('session_closed'));
+  es.addEventListener('request_sending',e=>{const d=JSON.parse(e.data);
+    if(S.sel===d.session_id&&S.detail){S.detail.request_headers=d.headers;renderDetail()}});
+  es.addEventListener('response_headers',e=>{const d=JSON.parse(e.data);
+    const s=S.sessions.get(d.session_id);if(s){s.status=d.status;s.state='streaming'}
+    if(S.sel===d.session_id&&S.detail){S.detail.status=d.status;S.detail.response_headers=d.headers;S.detail.http_version=d.http_version;S.detail.ttfb_ms=d.ttfb_ms;renderDetail()}
+    renderSess()});
+  es.addEventListener('error',onError);
+  ['upstream_switched','upstream_created','upstream_updated','upstream_removed'].forEach(k=>
+    es.addEventListener(k,async()=>{try{await loadState()}catch(_){}}));
+  es.addEventListener('request_rewritten',e=>{const d=JSON.parse(e.data);
+    const n=d.rewrites.reduce((a,b)=>a+b.count,0);
+    toast(`会话 #${d.session_short_id} 请求已改写 ${n} 处（body ${d.body_size_before}→${d.body_size_after} 字节）`);
+    if(S.sel===d.session_id)selectSession(d.session_id,true);});
+  es.addEventListener('response_rewritten',e=>{const d=JSON.parse(e.data);
+    const n=d.rewrites.reduce((a,b)=>a+b.count,0);
+    toast(`会话 #${d.session_short_id} 响应已反向改写 ${n} 处`,'ok');
+    if(S.sel===d.session_id)selectSession(d.session_id,true);});
+  es.addEventListener('history_cleared',()=>{S.sessions.clear();S.order=[];renderSess()});
+}
+setInterval(()=>{if(!S.paused)loadState().catch(()=>{})},15000);
+loadState().then(()=>{
+  return api('/api/sessions?limit=100').then(r=>{
+    (r.sessions||[]).forEach(s=>{S.sessions.set(s.id,s);if(!S.order.includes(s.id))S.order.push(s.id)});renderSess();});
+}).then(connect).catch(e=>toast('初始化失败: '+e.message,'err'));
+</script>
+</body>
+</html>
